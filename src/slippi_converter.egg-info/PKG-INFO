@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: slippi_converter
+Version: 0.0.1
+Summary: A converter for Slippi replay files to a format usable by the reinforcement learning environment
+Requires-Python: >=3.7
+Dynamic: requires-python
+Dynamic: summary

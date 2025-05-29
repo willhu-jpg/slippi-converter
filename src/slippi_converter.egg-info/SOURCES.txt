@@ -1,0 +1,6 @@
+README.md
+setup.py
+src/slippi_converter.egg-info/PKG-INFO
+src/slippi_converter.egg-info/SOURCES.txt
+src/slippi_converter.egg-info/dependency_links.txt
+src/slippi_converter.egg-info/top_level.txt
