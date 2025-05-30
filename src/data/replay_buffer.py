@@ -1,0 +1,159 @@
+import numpy as np
+import pickle
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional
+from glob import glob
+from torch.utils.data import Dataset
+from PIL import Image
+import torchvision.transforms as T
+
+# This is a copy of the replay buffer from cs224r-smash-sim.
+
+class ReplayBuffer(Dataset):
+    """
+    A replay buffer for pre-processed Melee pickle files
+    """
+    def __init__(self, root_dir: str, max_size: int = 1000000, window_size: int = 10, stride: int = 1):
+        self.max_size = max_size
+        self.window_size = window_size
+        self.stride = stride
+        self.root_dir = root_dir
+        self.pkl_dir = root_dir + "pkl/"
+        self.pkl_files = sorted(glob(str(Path(self.pkl_dir) / "*.pkl")))
+        self.frame_dir = root_dir + "frames/"
+
+        self.transform = T.Compose([
+            T.Resize((64,64)),
+            T.ToTensor(),                   # [0,1]
+            T.Normalize(0.5, 0.5),          # -> [–1,1]
+        ])
+        
+        self.reset()
+        self.add_directory(self.pkl_dir)
+
+    def reset(self):
+        """Reset the buffer"""
+        self.observations = []  # Game state observations
+        self.actions = []      # Player actions
+        self.next_observations = []  # Next frame observations
+        self.file_ids = []     # Track which file this state originates
+        self.valid_window_idx = [] # Track which frames are valid for the window
+        self.current_size = 0
+
+    def __len__(self):
+        return len(self.valid_window_idx)
+    
+    def __getitem__(self, idx):
+        # Construct a window of observations and actions
+        observations = self.observations[idx:idx + self.window_size]
+        actions = self.actions[idx:idx + self.window_size]
+        next_observations = self.next_observations[idx:idx + self.window_size]
+
+        file_id = self.file_ids[idx]
+        frame_paths = sorted(glob(str(Path(self.frame_dir) / file_id / "*.jpg")))
+        frame_paths = [frame_paths[i] for i in range(idx, idx + self.window_size)]
+        frames = [self.transform(Image.open(frame_path).convert("RGB")) for frame_path in frame_paths]
+
+        return (observations, actions, next_observations), frames
+
+    def _create_observation(self, data: Dict, frame_idx: int) -> np.ndarray:
+        """
+        Create an observation vector from the frame data
+        
+        Args:
+            data: Dictionary containing frame data
+            frame_idx: Index of the frame to process
+            
+        Returns:
+            Numpy array containing the observation
+        """
+        # Extract relevant features for the observation
+        obs = np.array([
+            data['p1_position_x'][frame_idx],
+            data['p1_position_y'][frame_idx],
+            data['p1_percent'][frame_idx],
+            data['p1_facing'][frame_idx],
+            data['p1_action'][frame_idx],
+            data['p2_position_x'][frame_idx],
+            data['p2_position_y'][frame_idx],
+            data['p2_percent'][frame_idx],
+            data['p2_facing'][frame_idx],
+            data['p2_action'][frame_idx]
+        ], dtype=np.float32)
+        
+        return obs
+
+    def _create_action(self, data: Dict, frame_idx: int) -> np.ndarray:
+        """
+        Create an action vector from the frame data
+        
+        Args:
+            data: Dictionary containing frame data
+            frame_idx: Index of the frame to process
+            
+        Returns:
+            Numpy array containing the action
+        """
+        # Extract all control inputs for player 1
+        action = np.array([
+            data['p1_main_stick_x'][frame_idx],    # Main stick X
+            data['p1_main_stick_y'][frame_idx],    # Main stick Y
+            data['p1_c_stick_x'][frame_idx],       # C-stick X
+            data['p1_c_stick_y'][frame_idx],       # C-stick Y
+            data['p1_l_shoulder'][frame_idx],      # L trigger
+            data['p1_r_shoulder'][frame_idx],      # R trigger
+            data['p1_button_a'][frame_idx],        # A button
+            data['p1_button_b'][frame_idx],        # B button
+            data['p1_button_x'][frame_idx],        # X button
+            data['p1_button_y'][frame_idx],        # Y button
+            data['p1_button_z'][frame_idx],        # Z button
+            data['p1_button_start'][frame_idx]     # Start button
+        ], dtype=np.float32)
+        
+        return action
+
+    def add_pkl_file(self, pkl_path: str) -> None:
+        """
+        Add a pickle file to the buffer
+        
+        Args:
+            pkl_path: Path to the .pkl file
+        """
+        # print(f"Loading {pkl_path}...")
+        with open(pkl_path, 'rb') as f:
+            data = pickle.load(f)
+        
+        # Get number of frames in this file
+        num_frames = len(data['frame'])
+        
+        # Add frames to buffer, excluding the last frame since we need next_observation
+        for i in range(num_frames - 1):
+            if self.current_size >= self.max_size:
+                return
+            
+            if i % self.stride == 0 and i + self.window_size < num_frames:
+                self.valid_window_idx.append(i)
+                
+            # Create observation and action vectors
+            observation = self._create_observation(data, i)
+            action = self._create_action(data, i)
+            next_observation = self._create_observation(data, i + 1)
+            
+            # Add to buffer
+            self.observations.append(observation)
+            self.actions.append(action)
+            self.next_observations.append(next_observation)
+            self.file_ids.append(Path(pkl_path).stem)
+            self.current_size += 1
+
+    def add_directory(self, directory: str) -> None:
+        """
+        Add all pickle files from a directory
+        
+        Args:
+            directory: Path to directory containing .pkl files
+        """
+        pkl_files = sorted(glob(str(Path(directory) / "*.pkl")))
+        for pkl_file in pkl_files:
+            self.add_pkl_file(pkl_file)
+        print(f"Loaded {self.current_size} total frames")
