@@ -26,7 +26,7 @@ def main():
         config={
             "learning_rate": 1e-3,
             "batch_size": 128,
-            "epochs": 100,
+            "epochs": 30,
             "architecture": "Encoder",
             "dataset": "slippi_frames",
             "image_size": 64,
@@ -47,8 +47,9 @@ def main():
 
         for batch in tqdm(dataloader, desc=f"Epoch {epoch}", leave=False):
             (observations, actions, next_observations), frames = batch
+
             frames = torch.stack(frames).squeeze(0).to(device)
-            observations = torch.stack(observations).squeeze(0).to(device)
+            observations = observations.detach().clone().requires_grad_(True).squeeze(1).to(device)
 
             y = model(frames)
 
@@ -78,9 +79,10 @@ def main():
                 
                 # Log reconstruction images to wandb
                 wandb.log({
-                    "reconstructions": wandb.Image(grid, caption=f"Epoch {epoch} - Frames"),
-                    "observations": wandb.Table(data=observations.tolist(), columns=columns),
+                    "frames": wandb.Image(grid, caption=f"Epoch {epoch} - Frames"),
                 })
+
+                print(y0)
 
     torch.save(model.state_dict(), "model.pth")
     
