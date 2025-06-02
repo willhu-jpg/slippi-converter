@@ -5,4 +5,4 @@ wandb==0.19.11
 tqdm
 torchvision
 pillow
-pydra
+pydra_config

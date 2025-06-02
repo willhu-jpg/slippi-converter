@@ -66,7 +66,7 @@ def prepare_output_dirs(output_dir, sets, base_name):
 def copy_frames(frames_src_dir, frames_dst_dir, idxs):
     for idx in idxs:
         # Compute 1-indexed filename by subtracting first_frame and adding 1
-        idx = idx + 8
+        idx = idx + 1
         file_name = f"frame_{idx:04d}.jpg"
         src_path = os.path.join(frames_src_dir, file_name)
         dst_path = os.path.join(frames_dst_dir, file_name)

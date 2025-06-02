@@ -18,12 +18,11 @@ import torch
 from tqdm import tqdm
 import wandb
 import torch.nn.functional as F
-import torchvision
 
 class TrainEncoderConfig(Config):
     def __init__(self):
         self.name = "train_encoder"
-        self.transform = "identity"
+        self.transform = "default"
         self.dropout = 0.1
         self.learning_rate = 1e-3
         self.batch_size = 128
@@ -31,7 +30,7 @@ class TrainEncoderConfig(Config):
         self.z_dim = 10
 
     def __repr__(self):
-        return f"ScriptConfig({self.to_dict()})"
+        return f"TrainEncoderConfig({self.to_dict()})"
 
 @pydra.main(base=TrainEncoderConfig)
 def main(config: TrainEncoderConfig):
@@ -47,6 +46,7 @@ def main(config: TrainEncoderConfig):
             "batch_size": config.batch_size,
             "epochs": config.epochs,
             "z_dim": config.z_dim,
+            "dropout": config.dropout,
             "architecture": "Encoder",
             "dataset": "slippi_frames",
             "image_size": 64,
@@ -59,13 +59,13 @@ def main(config: TrainEncoderConfig):
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data/train/", window_size=1, transform=config.transform)
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/train/", transform=config.transform)
     train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data/val/", window_size=1, transform=config.transform)
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/val/", transform=config.transform)
     val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data/test/", window_size=1, transform=config.transform)
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/test/", transform=config.transform)
     test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture
@@ -77,8 +77,8 @@ def main(config: TrainEncoderConfig):
         for batch in tqdm(train_dataloader, desc=f"Epoch {epoch}", leave=False):
             (observations, actions, next_observations), frames = batch
 
-            frames = torch.stack(frames).squeeze(0).to(device)
-            observations = observations.detach().clone().requires_grad_(True).squeeze(1).to(device)
+            frames = frames.squeeze(0).to(device)
+            observations = observations.squeeze(1).to(device)
 
             y = model(frames)
 
@@ -97,13 +97,14 @@ def main(config: TrainEncoderConfig):
 
          # every few epochs, compute validation loss:
         if epoch % 10 == 0:
+            model.eval()
             with torch.no_grad():
                 val_loss = 0
                 for batch in tqdm(val_dataloader, desc=f"Epoch {epoch}", leave=False):
                     (observations, actions, next_observations), frames = batch
 
-                    frames = torch.stack(frames).squeeze(0).to(device)
-                    observations = observations.detach().clone().squeeze(1).to(device)
+                    frames = frames.squeeze(0).to(device)
+                    observations = observations.squeeze(1).to(device)
 
                     y = model(frames)
                     val_loss += F.mse_loss(y, observations, reduction="mean").item()
@@ -115,12 +116,13 @@ def main(config: TrainEncoderConfig):
                 print(f"Validation Loss: {val_loss}")
 
     # compute test loss
+    model.eval()
     with torch.no_grad():
         test_loss = 0
         for batch in tqdm(test_dataloader, desc=f"Epoch {epoch}", leave=False):
             (observations, actions, next_observations), frames = batch
-            frames = torch.stack(frames).squeeze(0).to(device)
-            observations = observations.detach().clone().squeeze(1).to(device)
+            frames = frames.squeeze(0).to(device)
+            observations = observations.squeeze(1).to(device)
 
             y = model(frames)
             test_loss += F.mse_loss(y, observations, reduction="mean").item()

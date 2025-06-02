@@ -13,18 +13,26 @@ class ReplayBuffer(Dataset):
     """
     A replay buffer for pre-processed Melee pickle files
     """
-    def __init__(self, root_dir: str, max_size: int = 1000000):
+    def __init__(self, root_dir: str, max_size: int = 1000000, transform: str = "default"):
         self.max_size = max_size
         self.root_dir = root_dir
         self.pkl_dir = root_dir + "pkl/"
         self.pkl_files = sorted(glob(str(Path(self.pkl_dir) / "*.pkl")))
         self.frame_dir = root_dir + "frames/"
 
-        self.transform = T.Compose([
-            # T.Resize((64,64)),
-            T.ToTensor(),                   # [0,1]
-            # T.Normalize(0.5, 0.5),          # -> [–1,1]
-        ])
+        if transform == "default":
+            self.transform = T.Compose([
+                T.Resize((64,64)),
+                T.ToTensor(),                   # [0,1]
+                T.Normalize(0.5, 0.5),          # -> [–1,1]
+            ])
+        elif transform == "jitter":
+            self.transform = T.Compose([
+                T.Resize((64,64)),
+                T.ColorJitter(0.4, 0.4, 0.4, 0.1),
+                T.ToTensor(),                   # [0,1]
+                T.Normalize(0.5, 0.5),          # -> [–1,1]
+            ])
         
         self.reset()
         self.add_directory(self.pkl_dir)
@@ -144,7 +152,7 @@ class ReplayBuffer(Dataset):
             self.next_observations.append(next_observation)
             self.file_ids.append(Path(pkl_path).stem)
             self.offsets.append(prev_length)
-            self.frame_idx.append(data['frame'][i] - first_frame + 8)
+            self.frame_idx.append(data['frame'][i] - first_frame + 1)
             self.current_size += 1
 
     def add_directory(self, directory: str) -> None:
@@ -163,7 +171,7 @@ class ReplayBuffer(Dataset):
         self.mean_observations = np.mean(self.observations, axis=0)
         self.std_observations = np.std(self.observations, axis=0)
 
-        # self.observations = (self.observations - self.mean_observations) / (self.std_observations + 1e-8)
-        # self.next_observations = (self.next_observations - self.mean_observations) / (self.std_observations + 1e-8)
+        self.observations = (self.observations - self.mean_observations) / (self.std_observations + 1e-8)
+        self.next_observations = (self.next_observations - self.mean_observations) / (self.std_observations + 1e-8)
 
         print(f"Loaded {self.current_size} total frames")
