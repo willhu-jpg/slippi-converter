@@ -51,11 +51,15 @@ def sample_indices(total_frames):
     # Train indices are those not in blackout set
     train_idxs = np.setdiff1d(all_idxs, blackout_idxs)
 
-    # Val and test indices are only the centers
-    val_idxs = np.array(val_centers, dtype=int)
-    test_idxs = np.array(test_centers, dtype=int)
+    # Add first frame for offset calculation in replay_buffer.py
+    if 0 not in val_centers:
+        val_idxs = np.insert(val_centers, 0, 0)
+    if 0 not in test_centers:
+        test_centers = np.insert(test_centers, 0, 0)
+    if 0 not in train_idxs:
+        train_idxs = np.insert(train_idxs, 0, 0)
 
-    return train_idxs, val_idxs, test_idxs
+    return train_idxs, val_centers, test_centers
 
 
 def prepare_output_dirs(output_dir, sets, base_name):
