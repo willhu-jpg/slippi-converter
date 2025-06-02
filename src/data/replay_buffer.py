@@ -13,10 +13,8 @@ class ReplayBuffer(Dataset):
     """
     A replay buffer for pre-processed Melee pickle files
     """
-    def __init__(self, root_dir: str, max_size: int = 1000000, window_size: int = 10, stride: int = 1):
+    def __init__(self, root_dir: str, max_size: int = 1000000):
         self.max_size = max_size
-        self.window_size = window_size
-        self.stride = stride
         self.root_dir = root_dir
         self.pkl_dir = root_dir + "pkl/"
         self.pkl_files = sorted(glob(str(Path(self.pkl_dir) / "*.pkl")))
@@ -36,26 +34,24 @@ class ReplayBuffer(Dataset):
         self.observations = []  # Game state observations
         self.actions = []      # Player actions
         self.next_observations = []  # Next frame observations
-        self.file_ids = []     # Track which file this state originates
         self.offsets = []
-        self.valid_window_idx = [] # Track which frames are valid for the window
+        self.file_ids = []     # Track which file this state originates
         self.current_size = 0
 
     def __len__(self):
-        return len(self.valid_window_idx)
+        return len(self.observations)
     
     def __getitem__(self, idx):
         # Construct a window of observations and actions
-        observations = self.observations[idx:idx + self.window_size]
-        actions = self.actions[idx:idx + self.window_size]
-        next_observations = self.next_observations[idx:idx + self.window_size]
+        observation = self.observations[idx]
+        action = self.actions[idx]
+        next_observation = self.next_observations[idx]
 
         file_id = self.file_ids[idx]
-        frame_paths = sorted(glob(str(Path(self.frame_dir) / file_id / "*.jpg")))
-        frame_paths = [frame_paths[i - self.offsets[idx]] for i in range(idx, idx + self.window_size)]
-        frames = [self.transform(Image.open(frame_path).convert("RGB")) for frame_path in frame_paths]
+        frame_path = sorted(glob(str(Path(self.frame_dir) / file_id / "*.jpg")))[idx - self.offsets[idx]]
+        frame = self.transform(Image.open(frame_path).convert("RGB"))
 
-        return (observations, actions, next_observations), frames
+        return (observation, action, next_observation), frame
 
     def _create_observation(self, data: Dict, frame_idx: int) -> np.ndarray:
         """
@@ -108,7 +104,7 @@ class ReplayBuffer(Dataset):
             data['p1_button_x'][frame_idx],        # X button
             data['p1_button_y'][frame_idx],        # Y button
             data['p1_button_z'][frame_idx],        # Z button
-            data['p1_button_start'][frame_idx]     # Start button
+            data['p1_button_d_up'][frame_idx]     # D up button
         ], dtype=np.float32)
         
         return action
@@ -123,9 +119,10 @@ class ReplayBuffer(Dataset):
         # print(f"Loading {pkl_path}...")
         with open(pkl_path, 'rb') as f:
             data = pickle.load(f)
-        
+
         # Get number of frames in this file
         num_frames = len(data['frame'])
+        prev_length = len(self.observations)
 
         # Add frames to buffer, excluding the last frame since we need next_observation
         for i in range(num_frames - 1):
@@ -141,12 +138,9 @@ class ReplayBuffer(Dataset):
             self.observations.append(observation)
             self.actions.append(action)
             self.next_observations.append(next_observation)
-            self.offsets.append(data['frame'][0])
             self.file_ids.append(Path(pkl_path).stem)
+            self.offsets.append(prev_length)
             self.current_size += 1
-
-            if i % self.stride == 0 and i + self.window_size - self.offsets[-1] < num_frames:
-                self.valid_window_idx.append(i)
 
     def add_directory(self, directory: str) -> None:
         """
@@ -164,7 +158,7 @@ class ReplayBuffer(Dataset):
         self.mean_observations = np.mean(self.observations, axis=0)
         self.std_observations = np.std(self.observations, axis=0)
 
-        self.observations = (self.observations - self.mean_observations) / (self.std_observations + 1e-8)
-        self.next_observations = (self.next_observations - self.mean_observations) / (self.std_observations + 1e-8)
+        # self.observations = (self.observations - self.mean_observations) / (self.std_observations + 1e-8)
+        # self.next_observations = (self.next_observations - self.mean_observations) / (self.std_observations + 1e-8)
 
         print(f"Loaded {self.current_size} total frames")

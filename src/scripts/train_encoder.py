@@ -7,6 +7,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))  # scripts directory
 src_dir = os.path.dirname(current_dir)  # src directory
 sys.path.insert(0, src_dir)
 
+import pydra
+from pydra import REQUIRED, Config
+
 # Now import the modules
 from infra.model import Encoder
 from data.replay_buffer import ReplayBuffer
@@ -17,27 +20,53 @@ import wandb
 import torch.nn.functional as F
 import torchvision
 
-columns = ["p1_position_x", "p1_position_y", "p1_percent", "p1_facing", "p1_action", "p2_position_x", "p2_position_y", "p2_percent", "p2_facing", "p2_action"]
+class TrainEncoderConfig(Config):
+    def __init__(self):
+        self.name = "train_encoder"
+        self.transform = "identity"
+        self.dropout = 0.1
+        self.learning_rate = 1e-3
+        self.batch_size = 128
+        self.epochs = 30
+        self.z_dim = 10
 
-def main():
+    def __repr__(self):
+        return f"ScriptConfig({self.to_dict()})"
+
+@pydra.main(base=TrainEncoderConfig)
+def main(config: TrainEncoderConfig):
+
+    # print the config
+    print(config)
+
     # Initialize wandb
     wandb.init(
         project="slippi-frame-autoencoder",
         config={
-            "learning_rate": 1e-3,
-            "batch_size": 128,
-            "epochs": 30,
+            "learning_rate": config.learning_rate,
+            "batch_size": config.batch_size,
+            "epochs": config.epochs,
+            "z_dim": config.z_dim,
             "architecture": "Encoder",
             "dataset": "slippi_frames",
             "image_size": 64,
         }
     )
     
+    # Initialize model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = Encoder().to(device)
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data/test/", window_size=1)
-    dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
+    model = Encoder(z_dim=config.z_dim, dropout=config.dropout).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
+
+    # Initialize train, validation, and test datasets
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data/train/", window_size=1, transform=config.transform)
+    train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
+
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data/val/", window_size=1, transform=config.transform)
+    val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
+
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data/test/", window_size=1, transform=config.transform)
+    test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture
     wandb.watch(model, log="all")
@@ -45,7 +74,7 @@ def main():
     for epoch in tqdm(range(wandb.config.epochs), desc="Epochs"):
         model.train()
 
-        for batch in tqdm(dataloader, desc=f"Epoch {epoch}", leave=False):
+        for batch in tqdm(train_dataloader, desc=f"Epoch {epoch}", leave=False):
             (observations, actions, next_observations), frames = batch
 
             frames = torch.stack(frames).squeeze(0).to(device)
@@ -66,32 +95,50 @@ def main():
 
         print(f"Epoch {epoch}, Loss: {loss.item()}")
 
-
-         # every few epochs, visualize reconstructions:
+         # every few epochs, compute validation loss:
         if epoch % 10 == 0:
             with torch.no_grad():
-                x0 = frames[:8]                                     # last batch
-                y0 = model(x0)
-                y0 = y0.cpu()
-                x0 = x0.cpu()
-                grid = torchvision.utils.make_grid(x0, nrow=8)
-                torchvision.utils.save_image(grid, f"tmp/reconstructions_{epoch}.png")
-                
-                # Log reconstruction images to wandb
+                val_loss = 0
+                for batch in tqdm(val_dataloader, desc=f"Epoch {epoch}", leave=False):
+                    (observations, actions, next_observations), frames = batch
+
+                    frames = torch.stack(frames).squeeze(0).to(device)
+                    observations = observations.detach().clone().squeeze(1).to(device)
+
+                    y = model(frames)
+                    val_loss += F.mse_loss(y, observations, reduction="mean").item()
+                    
+                val_loss /= len(val_dataloader)
                 wandb.log({
-                    "frames": wandb.Image(grid, caption=f"Epoch {epoch} - Frames"),
+                    "val_loss": val_loss,
                 })
+                print(f"Validation Loss: {val_loss}")
 
-                print(y0)
+    # compute test loss
+    with torch.no_grad():
+        test_loss = 0
+        for batch in tqdm(test_dataloader, desc=f"Epoch {epoch}", leave=False):
+            (observations, actions, next_observations), frames = batch
+            frames = torch.stack(frames).squeeze(0).to(device)
+            observations = observations.detach().clone().squeeze(1).to(device)
 
-    torch.save(model.state_dict(), "model.pth")
+            y = model(frames)
+            test_loss += F.mse_loss(y, observations, reduction="mean").item()
+
+        test_loss /= len(test_dataloader)
+        wandb.log({
+            "test_loss": test_loss,
+        })
+        print(f"Test Loss: {test_loss}")
+
+    torch.save(model.state_dict(), f"{config.name}.pth")
     
     # Save model as wandb artifact
     artifact = wandb.Artifact("model", type="model")
-    artifact.add_file("model.pth")
+    artifact.add_file(f"{config.name}.pth")
     wandb.log_artifact(artifact)
     
-    print("Model saved to model.pth")
+    print(f"Model saved to {config.name}.pth")
     wandb.finish()
 
 if __name__ == "__main__":
