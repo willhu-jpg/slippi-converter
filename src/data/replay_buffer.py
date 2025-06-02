@@ -21,9 +21,9 @@ class ReplayBuffer(Dataset):
         self.frame_dir = root_dir + "frames/"
 
         self.transform = T.Compose([
-            T.Resize((64,64)),
+            # T.Resize((64,64)),
             T.ToTensor(),                   # [0,1]
-            T.Normalize(0.5, 0.5),          # -> [–1,1]
+            # T.Normalize(0.5, 0.5),          # -> [–1,1]
         ])
         
         self.reset()
@@ -36,6 +36,7 @@ class ReplayBuffer(Dataset):
         self.next_observations = []  # Next frame observations
         self.offsets = []
         self.file_ids = []     # Track which file this state originates
+        self.frame_idx = []
         self.current_size = 0
 
     def __len__(self):
@@ -48,8 +49,9 @@ class ReplayBuffer(Dataset):
         next_observation = self.next_observations[idx]
 
         file_id = self.file_ids[idx]
-        frame_path = sorted(glob(str(Path(self.frame_dir) / file_id / "*.jpg")))[idx - self.offsets[idx]]
-        frame = self.transform(Image.open(frame_path).convert("RGB"))
+        frame_idx = self.frame_idx[idx]
+        file_path = Path(self.frame_dir) / file_id / f"frame_{frame_idx:04d}.jpg"
+        frame = self.transform(Image.open(file_path).convert("RGB"))
 
         return (observation, action, next_observation), frame
 
@@ -124,6 +126,8 @@ class ReplayBuffer(Dataset):
         num_frames = len(data['frame'])
         prev_length = len(self.observations)
 
+        first_frame = data['frame'][0]
+
         # Add frames to buffer, excluding the last frame since we need next_observation
         for i in range(num_frames - 1):
             if self.current_size >= self.max_size:
@@ -140,6 +144,7 @@ class ReplayBuffer(Dataset):
             self.next_observations.append(next_observation)
             self.file_ids.append(Path(pkl_path).stem)
             self.offsets.append(prev_length)
+            self.frame_idx.append(data['frame'][i] - first_frame + 8)
             self.current_size += 1
 
     def add_directory(self, directory: str) -> None:

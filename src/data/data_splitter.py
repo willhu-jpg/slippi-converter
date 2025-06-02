@@ -63,10 +63,10 @@ def prepare_output_dirs(output_dir, sets, base_name):
         os.makedirs(pkl_sub, exist_ok=True)
 
 
-def copy_frames(frames_src_dir, frames_dst_dir, frame_numbers, first_frame):
-    for frame_num in frame_numbers:
+def copy_frames(frames_src_dir, frames_dst_dir, idxs):
+    for idx in idxs:
         # Compute 1-indexed filename by subtracting first_frame and adding 1
-        idx = frame_num - first_frame + 1
+        idx = idx + 8
         file_name = f"frame_{idx:04d}.jpg"
         src_path = os.path.join(frames_src_dir, file_name)
         dst_path = os.path.join(frames_dst_dir, file_name)
@@ -105,14 +105,6 @@ def load_and_split_data(data_dir, output_dir):
         # Sample indices for train, val, test
         train_idxs, val_idxs, test_idxs = sample_indices(total)
 
-        # Corresponding frame numbers
-        frame_nums = obj['frame']
-        first_frame = frame_nums[0]
-
-        train_frame_nums = frame_nums[train_idxs]
-        val_frame_nums = frame_nums[val_idxs]
-        test_frame_nums = frame_nums[test_idxs]
-
         # Prepare output directories
         sets = ['train', 'val', 'test']
         prepare_output_dirs(output_dir, sets, base_name)
@@ -121,15 +113,14 @@ def load_and_split_data(data_dir, output_dir):
         frames_src_dir = os.path.join(frames_dir, base_name)
 
         # Copy frames and save pkl for each split
-        for split, idxs, frame_nums_split in zip(
+        for split, idxs in zip(
             sets,
             [train_idxs, val_idxs, test_idxs],
-            [train_frame_nums, val_frame_nums, test_frame_nums]
         ):
             frames_dst_dir = os.path.join(output_dir, split, "frames", base_name)
             pkl_dst_path = os.path.join(output_dir, split, "pkl", f"{base_name}.pkl")
 
-            copy_frames(frames_src_dir, frames_dst_dir, frame_nums_split, first_frame)
+            copy_frames(frames_src_dir, frames_dst_dir, idxs)
             save_subset_pkl(obj, idxs, pkl_dst_path)
 
         print(
