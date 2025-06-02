@@ -134,8 +134,6 @@ class ReplayBuffer(Dataset):
         num_frames = len(data['frame'])
         prev_length = len(self.observations)
 
-        first_frame = data['frame'][0]
-
         # Add frames to buffer, excluding the last frame since we need next_observation
         for i in range(num_frames - 1):
             if self.current_size >= self.max_size:
@@ -152,7 +150,7 @@ class ReplayBuffer(Dataset):
             self.next_observations.append(next_observation)
             self.file_ids.append(Path(pkl_path).stem)
             self.offsets.append(prev_length)
-            self.frame_idx.append(data['frame'][i] - first_frame + 1)
+            self.frame_idx.append(i)
             self.current_size += 1
 
     def add_directory(self, directory: str) -> None:

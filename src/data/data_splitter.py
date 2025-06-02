@@ -51,14 +51,6 @@ def sample_indices(total_frames):
     # Train indices are those not in blackout set
     train_idxs = np.setdiff1d(all_idxs, blackout_idxs)
 
-    # Add first frame for offset calculation in replay_buffer.py
-    if 0 not in val_centers:
-        val_idxs = np.insert(val_centers, 0, 0)
-    if 0 not in test_centers:
-        test_centers = np.insert(test_centers, 0, 0)
-    if 0 not in train_idxs:
-        train_idxs = np.insert(train_idxs, 0, 0)
-
     return train_idxs, val_centers, test_centers
 
 
@@ -72,12 +64,15 @@ def prepare_output_dirs(output_dir, sets, base_name):
 
 
 def copy_frames(frames_src_dir, frames_dst_dir, idxs):
-    for idx in idxs:
+    for i, idx in enumerate(idxs):
         # Compute 1-indexed filename: add 1 to the zero-based idx
         file_idx = idx + 1
-        file_name = f"frame_{file_idx:04d}.jpg"
-        src_path = os.path.join(frames_src_dir, file_name)
-        dst_path = os.path.join(frames_dst_dir, file_name)
+        src_file_name = f"frame_{file_idx:04d}.jpg"
+        dst_file_name = f"frame_{i:04d}.jpg"
+
+        src_path = os.path.join(frames_src_dir, src_file_name)
+        dst_path = os.path.join(frames_dst_dir, dst_file_name)
+
         if not os.path.isfile(src_path):
             raise FileNotFoundError(f"Frame image not found: {src_path}")
         shutil.copyfile(src_path, dst_path)
