@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 from PIL import Image
 import torchvision.transforms as T
 import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 # This is a copy of the replay buffer from cs224r-smash-sim.
 
@@ -126,6 +127,12 @@ class ReplayBuffer(Dataset):
         
         return action
 
+    def load_and_transform_frames(self, i):
+        file_id = self.file_ids[i]
+        file_path = Path(self.frame_dir) / file_id / f"frame_{i:04d}.jpg"
+        image = Image.open(file_path).convert("RGB")
+        return self.transform(image)
+
     def add_pkl_file(self, pkl_path: str) -> None:
         """
         Add a pickle file to the buffer
@@ -159,12 +166,14 @@ class ReplayBuffer(Dataset):
             self.offsets.append(prev_length)
             self.frame_idx.append(i)
 
-            file_id = self.file_ids[i]
-            file_path = Path(self.frame_dir) / file_id / f"frame_{i:04d}.jpg"
-            frame = self.transform(Image.open(file_path).convert("RGB"))
-            self.frames.append(frame)
-
             self.current_size += 1
+
+        with ThreadPoolExecutor() as executor:
+            self.frames.extend(list(tqdm.tqdm(
+                executor.map(self.load_and_transform_frames, 
+                    range(num_frames - 1)
+                )
+            )))
 
     def add_directory(self, directory: str) -> None:
         """
