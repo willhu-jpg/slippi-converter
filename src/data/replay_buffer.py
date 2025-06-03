@@ -34,6 +34,12 @@ class ReplayBuffer(Dataset):
                 T.ToTensor(),                   # [0,1]
                 T.Normalize(0.5, 0.5),          # -> [–1,1]
             ])
+        elif transform == "AE_transform":
+            self.transform = T.Compose([
+                T.Resize((240,240)),
+                T.ToTensor(),
+                T.Normalize(0.5, 0.5),          # -> [–1,1]
+            ])
         
         self.reset()
         self.add_directory(self.pkl_dir)

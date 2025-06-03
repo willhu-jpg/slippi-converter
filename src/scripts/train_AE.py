@@ -11,7 +11,7 @@ import pydra
 from pydra import REQUIRED, Config
 
 # Now import the modules
-from infra.model import Encoder
+from infra.AE import FrameAE
 from data.replay_buffer import ReplayBuffer
 from torch.utils.data import DataLoader
 import torch
@@ -19,21 +19,19 @@ from tqdm import tqdm
 import wandb
 import torch.nn.functional as F
 
-class TrainEncoderConfig(Config):
+class TrainAEConfig(Config):
     def __init__(self):
-        self.name = "train_encoder"
+        self.name = "train_AE"
         self.transform = "default"
-        self.dropout = 0.1
         self.learning_rate = 1e-3
         self.batch_size = 128
-        self.epochs = 30
-        self.z_dim = 10
+        self.epochs = 20
 
     def __repr__(self):
-        return f"TrainEncoderConfig({self.to_dict()})"
+        return f"TrainAEConfig({self.to_dict()})"
 
-@pydra.main(base=TrainEncoderConfig)
-def main(config: TrainEncoderConfig):
+@pydra.main(base=TrainAEConfig)
+def main(config: TrainAEConfig):
 
     # print the config
     print(config)
@@ -45,9 +43,7 @@ def main(config: TrainEncoderConfig):
             "learning_rate": config.learning_rate,
             "batch_size": config.batch_size,
             "epochs": config.epochs,
-            "z_dim": config.z_dim,
-            "dropout": config.dropout,
-            "architecture": "Encoder",
+            "architecture": "FrameAE",
             "dataset": "slippi_frames",
             "image_size": 64,
         }
@@ -55,17 +51,17 @@ def main(config: TrainEncoderConfig):
     
     # Initialize model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = Encoder(z_dim=config.z_dim, dropout=config.dropout).to(device)
+    model = FrameAE().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transform=config.transform)
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transform="AE_transform")
     train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transform="default")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transform="AE_transform")
     val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transform="default")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transform="AE_transform")
     test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture
@@ -75,14 +71,16 @@ def main(config: TrainEncoderConfig):
         model.train()
 
         for batch in tqdm(train_dataloader, desc=f"Epoch {epoch}", leave=False):
-            (observations, actions, next_observations), frames = batch
+            (observations, _, _), frames = batch
 
             frames = frames.squeeze(0).to(device)
-            observations = observations.squeeze(1).to(device)
 
-            y = model(frames)
+            
+            positions, percentages, facings, actions = model(frames)
+            observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
+                                          positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
 
-            loss = F.mse_loss(y, observations, reduction="mean")
+            loss = F.mse_loss(observations_pred, observations, reduction="mean")
 
             optimizer.zero_grad()
             loss.backward()
@@ -95,19 +93,23 @@ def main(config: TrainEncoderConfig):
 
         print(f"Epoch {epoch}, Loss: {loss.item()}")
 
-         # every few epochs, compute validation loss:
+         # every few epochs, compute validation loss and visualize:
         if epoch % 5 == 0:
             model.eval()
             with torch.no_grad():
                 val_loss = 0
                 for batch in tqdm(val_dataloader, desc=f"Epoch {epoch}", leave=False):
-                    (observations, actions, next_observations), frames = batch
+                    (observations, _, _), frames = batch
 
                     frames = frames.squeeze(0).to(device)
-                    observations = observations.squeeze(1).to(device)
 
-                    y = model(frames)
-                    val_loss += F.mse_loss(y, observations, reduction="mean").item()
+                    positions, percentages, facings, actions = model(frames)
+                    
+                    observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
+                                                  positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
+
+                    loss = F.mse_loss(observations_pred, observations, reduction="mean")
+                    val_loss += loss.item()
                     
                 val_loss /= len(val_dataloader)
                 wandb.log({
@@ -120,12 +122,15 @@ def main(config: TrainEncoderConfig):
     with torch.no_grad():
         test_loss = 0
         for batch in tqdm(test_dataloader, desc=f"Epoch {epoch}", leave=False):
-            (observations, actions, next_observations), frames = batch
+            (observations, _, _), frames = batch
             frames = frames.squeeze(0).to(device)
-            observations = observations.squeeze(1).to(device)
 
-            y = model(frames)
-            test_loss += F.mse_loss(y, observations, reduction="mean").item()
+            positions, percentages, facings, actions = model(frames)
+            observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
+                                          positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
+
+            loss = F.mse_loss(observations_pred, observations, reduction="mean")
+            test_loss += loss.item()
 
         test_loss /= len(test_dataloader)
         wandb.log({
