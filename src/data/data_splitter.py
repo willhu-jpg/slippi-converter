@@ -5,7 +5,8 @@ import numpy as np
 import shutil
 
 
-SPLIT_PERCENT = 0.05  # ~5% for val and test each
+SPLIT_PERCENT = 0.15  # ~5% coverage by chunks for val and test
+CHUNK_SIZE = 5  # number of contiguous frames per sample chunk
 
 
 def process_pkl_file(pkl_path):
@@ -20,43 +21,42 @@ def process_pkl_file(pkl_path):
 
 
 def sample_indices(total_frames):
-    # Compute interval step
-    step = max(1, int(1 / SPLIT_PERCENT))
+    # Determine radius around a center for each chunk
+    chunk = CHUNK_SIZE
+    radius = chunk // 2  # floor division => 2 for CHUNK_SIZE=5
 
-    # Validation indices: start at 0
-    val_idxs = np.arange(0, total_frames, step)
+    # Calculate step between chunk centers so that total frames covered ~ SPLIT_PERCENT * total_frames
+    step = max(1, int(chunk / SPLIT_PERCENT))
 
-    # Test indices: offset by half step
+    # Validation centers: start at radius (to allow chunk to begin at 0)
+    val_centers = np.arange(radius, total_frames, step)
+    # Test centers: offset by half step for interleaving
     offset = step // 2
-    test_idxs = np.arange(offset, total_frames, step)
+    test_centers = np.arange(radius + offset, total_frames, step)
 
-    # Ensure first frame (0) is included in both
-    if 0 not in val_idxs:
-        val_idxs = np.insert(val_idxs, 0, 0)
+    # Clip any centers beyond range
+    val_centers = val_centers[val_centers < total_frames]
+    test_centers = test_centers[test_centers < total_frames]
 
-    if 0 not in test_idxs:
-        test_idxs = np.insert(test_idxs, 0, 0)
+    # Build blackout indices by expanding each center into a contiguous chunk
+    blackout_idxs = []
+    for c in np.concatenate([val_centers, test_centers]):
+        start = max(0, c - radius)
+        end = min(total_frames - 1, c + radius)
+        blackout_idxs.extend(range(start, end + 1))
+    blackout_idxs = np.unique(blackout_idxs)
 
-    # Remove duplicates and keep sorted
-    val_idxs = np.unique(val_idxs)
-    test_idxs = np.unique(test_idxs)
-
-    # Train indices: all others
+    # All frame indices
     all_idxs = np.arange(total_frames)
-    train_idxs = np.setdiff1d(all_idxs, np.union1d(val_idxs, test_idxs))
+    # Train indices are those not in blackout set
+    train_idxs = np.setdiff1d(all_idxs, blackout_idxs)
 
-    # Ensure first frame in train
-    if 0 not in train_idxs:
-        train_idxs = np.insert(train_idxs, 0, 0)
-
-    train_idxs = np.unique(train_idxs)
-
-    return train_idxs, val_idxs, test_idxs
+    return train_idxs, val_centers, test_centers
 
 
 def prepare_output_dirs(output_dir, sets, base_name):
     for split in sets:
-        # Create frames and pkl subdirs
+        # Create frames and pkl subdirectories
         frames_sub = os.path.join(output_dir, split, "frames", base_name)
         pkl_sub = os.path.join(output_dir, split, "pkl")
         os.makedirs(frames_sub, exist_ok=True)
@@ -64,12 +64,15 @@ def prepare_output_dirs(output_dir, sets, base_name):
 
 
 def copy_frames(frames_src_dir, frames_dst_dir, idxs):
-    for idx in idxs:
-        # Compute 1-indexed filename by subtracting first_frame and adding 1
-        idx = idx + 1
-        file_name = f"frame_{idx:04d}.jpg"
-        src_path = os.path.join(frames_src_dir, file_name)
-        dst_path = os.path.join(frames_dst_dir, file_name)
+    for i, idx in enumerate(idxs):
+        # Compute 1-indexed filename: add 1 to the zero-based idx
+        file_idx = idx + 1
+        src_file_name = f"frame_{file_idx:04d}.jpg"
+        dst_file_name = f"frame_{i:04d}.jpg"
+
+        src_path = os.path.join(frames_src_dir, src_file_name)
+        dst_path = os.path.join(frames_dst_dir, dst_file_name)
+
         if not os.path.isfile(src_path):
             raise FileNotFoundError(f"Frame image not found: {src_path}")
         shutil.copyfile(src_path, dst_path)
@@ -99,24 +102,21 @@ def load_and_split_data(data_dir, output_dir):
         pkl_path = os.path.join(pkl_dir, filename)
         obj = process_pkl_file(pkl_path)
 
-        # Total frames in pkl
+        # Total frames in the pkl file
         total = obj['frame'].shape[0]
 
-        # Sample indices for train, val, test
+        # Sample train/val/test indices with contiguous chunks for val and test
         train_idxs, val_idxs, test_idxs = sample_indices(total)
 
         # Prepare output directories
         sets = ['train', 'val', 'test']
         prepare_output_dirs(output_dir, sets, base_name)
 
-        # Paths
+        # Source directory containing frame images for this base_name
         frames_src_dir = os.path.join(frames_dir, base_name)
 
-        # Copy frames and save pkl for each split
-        for split, idxs in zip(
-            sets,
-            [train_idxs, val_idxs, test_idxs],
-        ):
+        # Copy frames and save the subset PKL for each split
+        for split, idxs in zip(sets, [train_idxs, val_idxs, test_idxs]):
             frames_dst_dir = os.path.join(output_dir, split, "frames", base_name)
             pkl_dst_path = os.path.join(output_dir, split, "pkl", f"{base_name}.pkl")
 
@@ -129,8 +129,8 @@ def load_and_split_data(data_dir, output_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Split data into train/val/test sets.")
-    parser.add_argument("data_dir", type=str, help="Path to data directory with frames, pkl, slp folders")
+    parser = argparse.ArgumentParser(description="Split data into train/val/test sets with blackout chunks.")
+    parser.add_argument("data_dir", type=str, help="Path to data directory with frames and pkl folders")
     parser.add_argument("output_dir", type=str, help="Path to output directory for splits")
     args = parser.parse_args()
 
@@ -138,7 +138,6 @@ def main():
         raise FileNotFoundError(f"Data directory not found: {args.data_dir}")
 
     os.makedirs(args.output_dir, exist_ok=True)
-
     load_and_split_data(args.data_dir, args.output_dir)
 
 
