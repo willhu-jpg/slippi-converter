@@ -6,6 +6,7 @@ from glob import glob
 from torch.utils.data import Dataset
 from PIL import Image
 import torchvision.transforms as T
+import tqdm
 
 # This is a copy of the replay buffer from cs224r-smash-sim.
 
@@ -46,6 +47,7 @@ class ReplayBuffer(Dataset):
         self.file_ids = []     # Track which file this state originates
         self.frame_idx = []
         self.current_size = 0
+        self.frames = []
 
     def __len__(self):
         return len(self.observations)
@@ -58,8 +60,7 @@ class ReplayBuffer(Dataset):
 
         file_id = self.file_ids[idx]
         frame_idx = self.frame_idx[idx]
-        file_path = Path(self.frame_dir) / file_id / f"frame_{frame_idx:04d}.jpg"
-        frame = self.transform(Image.open(file_path).convert("RGB"))
+        frame = self.frames[idx]
 
         return (observation, action, next_observation), frame
 
@@ -135,7 +136,7 @@ class ReplayBuffer(Dataset):
         prev_length = len(self.observations)
 
         # Add frames to buffer, excluding the last frame since we need next_observation
-        for i in range(num_frames - 1):
+        for i in tqdm.tqdm(range(num_frames - 1)):
             if self.current_size >= self.max_size:
                 return
                 
@@ -151,6 +152,12 @@ class ReplayBuffer(Dataset):
             self.file_ids.append(Path(pkl_path).stem)
             self.offsets.append(prev_length)
             self.frame_idx.append(i)
+
+            file_id = self.file_ids[i]
+            file_path = Path(self.frame_dir) / file_id / f"frame_{i:04d}.jpg"
+            frame = self.transform(Image.open(file_path).convert("RGB"))
+            self.frames.append(frame)
+
             self.current_size += 1
 
     def add_directory(self, directory: str) -> None:
