@@ -28,50 +28,41 @@ class Encoder(nn.Module):
         h = self.flatten(h)
         return h
 
-class Decoder(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.fc = nn.Linear(32, 60*60)
-        self.unflatten = nn.Unflatten(1, (60, 60))
-
-    def forward(self, z):
-        h = self.fc(z)
-        h = self.unflatten(h)
-        return h
-
 class FrameAE(nn.Module):
-    def __init__(self):
+    def __init__(self, coord_dim=32):
         super().__init__()
         self.enc  = Encoder()
-        self.dec  = Decoder()
 
-        self.downsample_and_grayscale = T.Compose([
-                T.Resize((60,60)),
-                T.Grayscale(num_output_channels=1),
-        ])
+        # Predict positions directly from spatial softmax coords
+        self.position_head = nn.Linear(coord_dim, 4)  # e.g., p1_x,p1_y,p2_x,p2_y
 
-        self.previous_coords = None
-        self.previous_previous_coords = None
+        # Additional head for percentages
+        self.percent_head = nn.Sequential(
+            nn.Linear(coord_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 2)  # player 1 percent, player 2 percent
+        )
+
+        # Additional head for facing
+        self.facing_head = nn.Sequential(
+            nn.Linear(coord_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 2)  # player 1 facing, player 2 facing
+        )
+
+        # Additional head for action
+        self.action_head = nn.Sequential(
+            nn.Linear(coord_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 2)  # player 1 action, player 2 action
+        )
 
     def forward(self, x):
-        # import pdb; pdb.set_trace()
         coords = self.enc(x)
-        recon = self.dec(coords)
-        recon_truth = self.downsample_and_grayscale(x).squeeze(1)
-
-        recon_loss = F.mse_loss(recon, recon_truth, reduction="mean")
-
-        # penalty = 0
-        # if (self.previous_coords is not None and 
-        #     self.previous_previous_coords is not None and
-        #     self.previous_coords.shape == self.previous_previous_coords.shape == coords.shape):
-        #     penalty = F.mse_loss((coords - self.previous_coords).abs(), (self.previous_coords - self.previous_previous_coords).abs(), reduction="sum")
-
-        loss = recon_loss
-
-        # # DETACH before storing to break the computational graph
-        # self.previous_previous_coords = self.previous_coords.detach() if self.previous_coords is not None else None
-        # self.previous_coords = coords.detach()
+        positions = self.position_head(coords)
+        percentages = self.percent_head(coords)
+        facings = self.facing_head(coords)
+        actions = self.action_head(coords)
         
-        return coords, recon, recon_truth,loss
+        return positions, percentages, facings, actions
         

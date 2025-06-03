@@ -59,13 +59,13 @@ def main(config: TrainEncoderConfig):
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/train/", transform=config.transform)
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transform=config.transform)
     train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/val/", transform="default")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transform="default")
     val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/test/", transform="default")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transform="default")
     test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture

@@ -351,7 +351,7 @@ def main():
                       choices=['encoder', 'frameae'],
                       help='Type of model to evaluate')
     parser.add_argument('--test_data', type=str, 
-                      default='/home/ubuntu/project/slippi-converter/data_split/test/',
+                      default='/home/ubuntu/project/slippify/data_split/test/',
                       help='Path to test data directory')
     parser.add_argument('--batch_size', type=int, default=128,
                       help='Batch size for evaluation')

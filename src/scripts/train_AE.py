@@ -55,13 +55,13 @@ def main(config: TrainAEConfig):
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/train/", transform="AE_transform")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transform="AE_transform")
     train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/val/", transform="AE_transform")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transform="AE_transform")
     val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippi-converter/data_split/test/", transform="AE_transform")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transform="AE_transform")
     test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture
@@ -71,11 +71,16 @@ def main(config: TrainAEConfig):
         model.train()
 
         for batch in tqdm(train_dataloader, desc=f"Epoch {epoch}", leave=False):
-            _, frames = batch
+            (observations, _, _), frames = batch
 
             frames = frames.squeeze(0).to(device)
 
-            coords, recon, recon_truth, loss = model(frames)
+            
+            positions, percentages, facings, actions = model(frames)
+            observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
+                                          positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
+
+            loss = F.mse_loss(observations_pred, observations, reduction="mean")
 
             optimizer.zero_grad()
             loss.backward()
@@ -94,19 +99,17 @@ def main(config: TrainAEConfig):
             with torch.no_grad():
                 val_loss = 0
                 for batch in tqdm(val_dataloader, desc=f"Epoch {epoch}", leave=False):
-                    _, frames = batch
+                    (observations, _, _), frames = batch
 
                     frames = frames.squeeze(0).to(device)
 
-                    coords, recon, recon_truth, loss = model(frames)
-                    val_loss += loss.item()
+                    positions, percentages, facings, actions = model(frames)
+                    
+                    observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
+                                                  positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
 
-                    # visualize the frames, the recon, and the recon_truth
-                    wandb.log({
-                        "frames": wandb.Image(frames),
-                        "recon": wandb.Image(recon),
-                        "recon_truth": wandb.Image(recon_truth),
-                    })
+                    loss = F.mse_loss(observations_pred, observations, reduction="mean")
+                    val_loss += loss.item()
                     
                 val_loss /= len(val_dataloader)
                 wandb.log({
@@ -119,10 +122,14 @@ def main(config: TrainAEConfig):
     with torch.no_grad():
         test_loss = 0
         for batch in tqdm(test_dataloader, desc=f"Epoch {epoch}", leave=False):
-            _, frames = batch
+            (observations, _, _), frames = batch
             frames = frames.squeeze(0).to(device)
 
-            coords, recon, recon_truth, loss = model(frames)
+            positions, percentages, facings, actions = model(frames)
+            observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
+                                          positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
+
+            loss = F.mse_loss(observations_pred, observations, reduction="mean")
             test_loss += loss.item()
 
         test_loss /= len(test_dataloader)
