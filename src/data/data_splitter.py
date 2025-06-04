@@ -4,11 +4,6 @@ import argparse
 import numpy as np
 import shutil
 
-
-SPLIT_PERCENT = 0.15  # ~5% coverage by chunks for val and test
-CHUNK_SIZE = 5  # number of contiguous frames per sample chunk
-
-
 def process_pkl_file(pkl_path):
     with open(pkl_path, 'rb') as f:
         obj = pickle.load(f)
@@ -20,38 +15,49 @@ def process_pkl_file(pkl_path):
     return obj
 
 
-def sample_indices(total_frames):
-    # Determine radius around a center for each chunk
-    chunk = CHUNK_SIZE
-    radius = chunk // 2  # floor division => 2 for CHUNK_SIZE=5
-
-    # Calculate step between chunk centers so that total frames covered ~ SPLIT_PERCENT * total_frames
-    step = max(1, int(chunk / SPLIT_PERCENT))
-
-    # Validation centers: start at radius (to allow chunk to begin at 0)
-    val_centers = np.arange(radius, total_frames, step)
-    # Test centers: offset by half step for interleaving
+def sample_indices(total_frames, window, keep_window, split_ratio):
+    radius = window // 2
+    step = max(1, int(window / split_ratio))
     offset = step // 2
-    test_centers = np.arange(radius + offset, total_frames, step)
 
-    # Clip any centers beyond range
-    val_centers = val_centers[val_centers < total_frames]
-    test_centers = test_centers[test_centers < total_frames]
+    # Sample at certain step, with test offset half a step
+    center_sets = [
+        np.arange(radius, total_frames, step),
+        np.arange(radius + offset, total_frames, step)
+    ]
 
-    # Build blackout indices by expanding each center into a contiguous chunk
-    blackout_idxs = []
-    for c in np.concatenate([val_centers, test_centers]):
-        start = max(0, c - radius)
-        end = min(total_frames - 1, c + radius)
-        blackout_idxs.extend(range(start, end + 1))
-    blackout_idxs = np.unique(blackout_idxs)
+    # Clip so we don't have any windows off the end
+    for i, centers in enumerate(center_sets):
+        center_sets[i] = centers[centers + radius <= total_frames]
 
-    # All frame indices
-    all_idxs = np.arange(total_frames)
-    # Train indices are those not in blackout set
-    train_idxs = np.setdiff1d(all_idxs, blackout_idxs)
+    # Gather window ranges surrounding the centers
+    window_sets = []
+    for centers in center_sets:
+        windows = [np.arange(centers[i] - radius, centers[i] + radius + 1)
+                   for i in range(len(centers))]
+        windows = np.array(windows).reshape(len(windows) * window)
+        window_sets.append(windows)
 
-    return train_idxs, val_centers, test_centers
+    # Train is all remaining frames
+    all_frames = np.arange(total_frames)
+    blacked_out = np.sort(np.concatenate(window_sets, axis=0))
+    train = np.setdiff1d(all_frames, blacked_out)
+    val, test = center_sets
+    assert len(train) > 0 and len(val) > 0 and len(test) > 0
+
+    if keep_window:
+        val, test = window_sets
+        
+        # Check that train windows are at least window size
+        cur_len = 1
+        for i in range(1, len(train)):
+            if train[i] != train[i - 1] + 1:
+                assert cur_len >= window
+                cur_len = 0
+            cur_len += 1
+        assert cur_len > window
+
+    return train, val, test
 
 
 def prepare_output_dirs(output_dir, sets, base_name):
@@ -90,7 +96,7 @@ def save_subset_pkl(obj, indices, dst_pkl_path):
         pickle.dump(subset, f)
 
 
-def load_and_split_data(data_dir, output_dir):
+def load_and_split_data(data_dir, output_dir, window, keep_window, split_ratio):
     pkl_dir = os.path.join(data_dir, "pkl")
     frames_dir = os.path.join(data_dir, "frames")
 
@@ -106,7 +112,7 @@ def load_and_split_data(data_dir, output_dir):
         total = obj['frame'].shape[0]
 
         # Sample train/val/test indices with contiguous chunks for val and test
-        train_idxs, val_idxs, test_idxs = sample_indices(total)
+        train_idxs, val_idxs, test_idxs = sample_indices(total, window, keep_window, split_ratio)
 
         # Prepare output directories
         sets = ['train', 'val', 'test']
@@ -132,13 +138,20 @@ def main():
     parser = argparse.ArgumentParser(description="Split data into train/val/test sets with blackout chunks.")
     parser.add_argument("data_dir", type=str, help="Path to data directory with frames and pkl folders")
     parser.add_argument("output_dir", type=str, help="Path to output directory for splits")
+    parser.add_argument("--window", type=int, default=5)
+    parser.add_argument("--keep_window", action="store_true")
+    parser.add_argument("--split_ratio", type=float, default=0.15)
     args = parser.parse_args()
+
+    # Window length must be odd to center frame
+    assert args.window & 1 == 1
 
     if not os.path.isdir(args.data_dir):
         raise FileNotFoundError(f"Data directory not found: {args.data_dir}")
 
     os.makedirs(args.output_dir, exist_ok=True)
-    load_and_split_data(args.data_dir, args.output_dir)
+    load_and_split_data(args.data_dir, args.output_dir, 
+                        args.window, args.keep_window, args.split_ratio)
 
 
 if __name__ == "__main__":

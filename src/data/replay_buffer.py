@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from glob import glob
 from torch.utils.data import Dataset
+import torch
 from PIL import Image
 import torchvision.transforms as T
 import tqdm
@@ -15,12 +16,20 @@ class ReplayBuffer(Dataset):
     """
     A replay buffer for pre-processed Melee pickle files
     """
-    def __init__(self, root_dir: str, max_size: int = 1000000, transform: str = "default"):
+    def __init__(self, root_dir: str, 
+                 max_size: int = 1000000, 
+                 transform: str = "default", 
+                 window_len : int = None):
         self.max_size = max_size
         self.root_dir = root_dir
         self.pkl_dir = root_dir + "pkl/"
         self.pkl_files = sorted(glob(str(Path(self.pkl_dir) / "*.pkl")))
         self.frame_dir = root_dir + "frames/"
+
+        self.windowed = window_len != None
+        if self.windowed:
+            self.window_len = window_len
+            assert self.window_len & 1 == 1
 
         if transform == "default":
             self.transform = T.Compose([
@@ -44,6 +53,18 @@ class ReplayBuffer(Dataset):
         
         self.reset()
         self.add_directory(self.pkl_dir)
+        if self.windowed:
+            self.populate_data_idxs()
+
+    def populate_data_idxs(self):
+        assert len(self.obs_idxs) == len(self.observations)
+        radius = self.window_len // 2
+        for i in range(radius, len(self.obs_idxs) - radius):
+            for j in range(-radius, radius + 1):
+                if self.obs_idxs[i + j] != self.obs_idxs[i] + j:
+                    break
+            else:
+                self.data_idxs.append(i)
 
     def reset(self):
         """Reset the buffer"""
@@ -55,12 +76,20 @@ class ReplayBuffer(Dataset):
         self.frame_idx = []
         self.current_size = 0
         self.frames = []
+        if self.windowed:
+            self.data_idxs = []
+            self.obs_idxs = []
 
     def __len__(self):
+        if self.windowed:
+            return len(self.data_idxs)
         return len(self.observations)
     
     def __getitem__(self, idx):
         # Construct a window of observations and actions
+        if self.windowed:
+            idx = self.data_idxs[idx]
+
         observation = self.observations[idx]
         action = self.actions[idx]
         next_observation = self.next_observations[idx]
@@ -68,6 +97,11 @@ class ReplayBuffer(Dataset):
         file_id = self.file_ids[idx]
         frame_idx = self.frame_idx[idx]
         frame = self.frames[idx]
+
+        if self.windowed:
+            radius = self.window_len // 2
+            start, end = idx - radius, idx + radius + 1
+            frame = torch.cat(self.frames[start: end], dim=2)
 
         return (observation, action, next_observation), frame
 
@@ -95,8 +129,12 @@ class ReplayBuffer(Dataset):
             data['p2_facing'][frame_idx],
             data['p2_action'][frame_idx]
         ], dtype=np.float32)
+
+        obs_idx = None
+        if self.windowed:
+            obs_idx = data['frame'][frame_idx]
         
-        return obs
+        return obs, obs_idx
 
     def _create_action(self, data: Dict, frame_idx: int) -> np.ndarray:
         """
@@ -127,8 +165,8 @@ class ReplayBuffer(Dataset):
         
         return action
 
-    def load_and_transform_frames(self, i):
-        file_id = self.file_ids[i]
+    def load_and_transform_frames(self, start, i):
+        file_id = self.file_ids[start + i]
         file_path = Path(self.frame_dir) / file_id / f"frame_{i:04d}.jpg"
         image = Image.open(file_path).convert("RGB")
         return self.transform(image)
@@ -154,9 +192,12 @@ class ReplayBuffer(Dataset):
                 return
                 
             # Create observation and action vectors
-            observation = self._create_observation(data, i)
+            observation, obs_idx = self._create_observation(data, i)
             action = self._create_action(data, i)
-            next_observation = self._create_observation(data, i + 1)
+            next_observation, obs_idx = self._create_observation(data, i + 1)
+
+            if self.windowed:
+                self.obs_idxs.append(obs_idx)
             
             # Add to buffer
             self.observations.append(observation)
@@ -170,9 +211,9 @@ class ReplayBuffer(Dataset):
 
         with ThreadPoolExecutor() as executor:
             self.frames.extend(list(tqdm.tqdm(
-                executor.map(self.load_and_transform_frames, 
-                    range(num_frames - 1)
-                )
+                executor.map(
+                    lambda i: self.load_and_transform_frames(prev_length, i), 
+                    range(num_frames - 1))
             )))
 
     def add_directory(self, directory: str) -> None:
