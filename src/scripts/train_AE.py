@@ -25,7 +25,7 @@ class TrainAEConfig(Config):
         self.transform = "default"
         self.learning_rate = 1e-3
         self.batch_size = 128
-        self.epochs = 20
+        self.epochs = 30
 
     def __repr__(self):
         return f"TrainAEConfig({self.to_dict()})"
@@ -55,13 +55,13 @@ def main(config: TrainAEConfig):
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transform="AE_transform")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transforms=["AE_transform"])
     train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transform="AE_transform")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transforms=["AE_transform"])
     val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transform="AE_transform")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transforms="AE_transform")
     test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture

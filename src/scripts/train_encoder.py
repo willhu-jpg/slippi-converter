@@ -11,6 +11,7 @@ import pydra
 from pydra import REQUIRED, Config
 
 # Now import the modules
+from infra.biggerModel import BigEncoder
 from infra.model import Encoder
 from data.replay_buffer import ReplayBuffer
 from torch.utils.data import DataLoader
@@ -22,6 +23,7 @@ import torch.nn.functional as F
 class TrainEncoderConfig(Config):
     def __init__(self):
         self.name = "train_encoder"
+        self.model = "bigger"
         self.transforms = ["default", "jitter"]
         self.dropout = 0.1
         self.learning_rate = 1e-3
@@ -47,7 +49,7 @@ def main(config: TrainEncoderConfig):
             "epochs": config.epochs,
             "z_dim": config.z_dim,
             "dropout": config.dropout,
-            "architecture": "Encoder",
+            "architecture": config.model,
             "dataset": "slippi_frames",
             "image_size": 64,
         }
@@ -55,7 +57,10 @@ def main(config: TrainEncoderConfig):
     
     # Initialize model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = Encoder(z_dim=config.z_dim, dropout=config.dropout).to(device)
+    if config.model == "bigger":
+        model = BigEncoder(z_dim=config.z_dim, dropout=config.dropout).to(device)
+    else:
+        model = Encoder(z_dim=config.z_dim, dropout=config.dropout).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets

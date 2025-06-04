@@ -35,7 +35,7 @@ class ReplayBuffer(Dataset):
         if "jitter" in transforms:
             self.transforms.append(T.Compose([
                 T.Resize((64,64)),
-                T.ColorJitter(0.4, 0.4, 0.4, 0.1),
+                T.ColorJitter(0.2, 0.2, 0.2, 0.05),
                 T.ToTensor(),                   # [0,1]
                 T.Normalize(0.5, 0.5),          # -> [–1,1]
             ]))
@@ -185,8 +185,6 @@ class ReplayBuffer(Dataset):
                 ))
                 ))
             )
-
-        import pdb; pdb.set_trace()
 
     def add_directory(self, directory: str) -> None:
         """
