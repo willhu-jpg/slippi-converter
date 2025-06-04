@@ -39,6 +39,7 @@ def main(config: TrainAEConfig):
     # Initialize wandb
     wandb.init(
         project="slippi-frame-autoencoder",
+        name=config.name,
         config={
             "learning_rate": config.learning_rate,
             "batch_size": config.batch_size,
