@@ -76,7 +76,7 @@ def main(config: TrainAEConfig):
 
             frames = frames.squeeze(0).to(device)
 
-            recon, recon_truth, recon_loss = model(frames)
+            coords, recon, recon_truth, recon_loss = model(frames)
 
             optimizer.zero_grad()
             recon_loss.backward()
@@ -99,7 +99,7 @@ def main(config: TrainAEConfig):
 
                     frames = frames.squeeze(0).to(device)
 
-                    recon, recon_truth, recon_loss = model(frames)
+                    coords, recon, recon_truth, recon_loss = model(frames)
                     
                     val_recon_loss += recon_loss.item()
 
@@ -123,7 +123,7 @@ def main(config: TrainAEConfig):
             _, frames = batch
             frames = frames.squeeze(0).to(device)
 
-            recon, recon_truth, recon_loss = model(frames)
+            coords,recon, recon_truth, recon_loss = model(frames)
 
             test_recon_loss += recon_loss.item()
 

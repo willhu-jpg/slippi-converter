@@ -58,5 +58,5 @@ class FrameAE(nn.Module):
 
         recon_loss = F.mse_loss(recon, recon_truth, reduction="mean")
         
-        return recon, recon_truth, recon_loss
+        return coords, recon, recon_truth, recon_loss
         

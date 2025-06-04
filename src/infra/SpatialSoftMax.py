@@ -5,7 +5,7 @@ import torch.nn.functional as F
 class SpatialSoftArgmax(nn.Module):
     """
     Given input feature‐maps of shape (B, C, H, W), this module:
-      1. Applies a per‐channel spatial softmax with learned “temperature” α
+      1. Applies a per‐channel spatial softmax with learned "temperature" α
          over the H×W activations.
       2. Computes expected 2D coordinates (x, y) for each channel:
          f_c = ( Σ_i Σ_j i * softmax_ij , Σ_i Σ_j j * softmax_ij ).
@@ -18,7 +18,7 @@ class SpatialSoftArgmax(nn.Module):
         self.height = height
         self.width = width
 
-        # Learnable “temperature” parameter α (initialized to 1.0 by default)
+        # Learnable "temperature" parameter α (initialized to 1.0 by default)
         self.log_alpha = nn.Parameter(torch.zeros(()))  # stores log(α)
 
         # Precompute coordinate grids of shape (H, W)
@@ -28,8 +28,9 @@ class SpatialSoftArgmax(nn.Module):
         j_range = torch.linspace(0, width - 1,  steps=width)
         # create (H, W) grids
         i_grid, j_grid = torch.meshgrid(i_range, j_range, indexing='ij')
-        self.register_buffer('i_grid', i_grid)  # shape (H, W)
-        self.register_buffer('j_grid', j_grid)  # shape (H, W)
+        # Clone the tensors to avoid memory sharing issues when loading state dict
+        self.register_buffer('i_grid', i_grid.clone())  # shape (H, W)
+        self.register_buffer('j_grid', j_grid.clone())  # shape (H, W)
 
     def forward(self, feature_maps: torch.Tensor) -> torch.Tensor:
         """
@@ -54,7 +55,7 @@ class SpatialSoftArgmax(nn.Module):
         #   x_coord[c] = Σ_i Σ_j (j * P_ij),
         #   y_coord[c] = Σ_i Σ_j (i * P_ij)
         #
-        # We have i_grid, j_grid each of shape (H, W). We’ll multiply and sum.
+        # We have i_grid, j_grid each of shape (H, W). We'll multiply and sum.
 
         # Expand grids to (1, 1, H, W) so broadcasting works against (B, C, H, W)
         i_grid = self.i_grid.unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
