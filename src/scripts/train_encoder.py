@@ -22,7 +22,7 @@ import torch.nn.functional as F
 class TrainEncoderConfig(Config):
     def __init__(self):
         self.name = "train_encoder"
-        self.transform = "default"
+        self.transforms = ["default", "jitter"]
         self.dropout = 0.1
         self.learning_rate = 1e-3
         self.batch_size = 128
@@ -59,13 +59,13 @@ def main(config: TrainEncoderConfig):
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transform=config.transform)
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transforms=config.transforms)
     train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transform="default")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transforms=["default"])
     val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transform="default")
+    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transforms=["default"])
     test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture

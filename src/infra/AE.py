@@ -28,41 +28,35 @@ class Encoder(nn.Module):
         h = self.flatten(h)
         return h
 
+class Decoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Linear(32, 60*60)
+        self.unflatten = nn.Unflatten(1, (60, 60))
+
+    def forward(self, z):
+        h = self.fc(z)
+        h = self.unflatten(h)
+        return h
+
 class FrameAE(nn.Module):
     def __init__(self, coord_dim=32):
         super().__init__()
         self.enc  = Encoder()
-
-        # Predict positions directly from spatial softmax coords
-        self.position_head = nn.Linear(coord_dim, 4)  # e.g., p1_x,p1_y,p2_x,p2_y
-
-        # Additional head for percentages
-        self.percent_head = nn.Sequential(
-            nn.Linear(coord_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 2)  # player 1 percent, player 2 percent
-        )
-
-        # Additional head for facing
-        self.facing_head = nn.Sequential(
-            nn.Linear(coord_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 2)  # player 1 facing, player 2 facing
-        )
-
-        # Additional head for action
-        self.action_head = nn.Sequential(
-            nn.Linear(coord_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 2)  # player 1 action, player 2 action
-        )
+        self.dec = Decoder()
+        
+        self.downsample_and_grayscale = T.Compose([
+                T.Resize((60,60)),
+                T.Grayscale(num_output_channels=1),
+        ])
 
     def forward(self, x):
         coords = self.enc(x)
-        positions = self.position_head(coords)
-        percentages = self.percent_head(coords)
-        facings = self.facing_head(coords)
-        actions = self.action_head(coords)
+
+        recon = self.dec(coords)
+        recon_truth = self.downsample_and_grayscale(x).squeeze(1)
+
+        recon_loss = F.mse_loss(recon, recon_truth, reduction="mean")
         
-        return positions, percentages, facings, actions
+        return recon, recon_truth, recon_loss
         

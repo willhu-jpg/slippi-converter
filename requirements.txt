@@ -6,3 +6,4 @@ tqdm
 torchvision
 pillow
 pydra_config
+matplotlib

@@ -71,72 +71,66 @@ def main(config: TrainAEConfig):
         model.train()
 
         for batch in tqdm(train_dataloader, desc=f"Epoch {epoch}", leave=False):
-            (observations, _, _), frames = batch
+            _, frames = batch
 
             frames = frames.squeeze(0).to(device)
 
-            
-            positions, percentages, facings, actions = model(frames)
-            observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
-                                          positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
-
-            loss = F.mse_loss(observations_pred, observations, reduction="mean")
+            recon, recon_truth, recon_loss = model(frames)
 
             optimizer.zero_grad()
-            loss.backward()
+            recon_loss.backward()
             optimizer.step()
 
         wandb.log({
             "epoch": epoch,
-            "loss": loss.item(),
+            "recon_loss": recon_loss.item(),
         })
 
-        print(f"Epoch {epoch}, Loss: {loss.item()}")
+        print(f"Epoch {epoch}, Recon Loss: {recon_loss.item()}")
 
          # every few epochs, compute validation loss and visualize:
         if epoch % 5 == 0:
             model.eval()
             with torch.no_grad():
-                val_loss = 0
+                val_recon_loss = 0
                 for batch in tqdm(val_dataloader, desc=f"Epoch {epoch}", leave=False):
-                    (observations, _, _), frames = batch
+                    _, frames = batch
 
                     frames = frames.squeeze(0).to(device)
 
-                    positions, percentages, facings, actions = model(frames)
+                    recon, recon_truth, recon_loss = model(frames)
                     
-                    observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
-                                                  positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
+                    val_recon_loss += recon_loss.item()
 
-                    loss = F.mse_loss(observations_pred, observations, reduction="mean")
-                    val_loss += loss.item()
-                    
-                val_loss /= len(val_dataloader)
+                # visualize the recon and recon_truth
                 wandb.log({
-                    "val_loss": val_loss,
+                    "val_recon_truth": [wandb.Image(recon_truth[i]) for i in range(recon_truth.shape[0])],
+                    "val_recon": [wandb.Image(recon[i]) for i in range(recon.shape[0])],
                 })
-                print(f"Validation Loss: {val_loss}")
+
+                val_recon_loss /= len(val_dataloader)
+                wandb.log({
+                    "val_recon_loss": val_recon_loss,
+                })
+                print(f"Validation Recon Loss: {val_recon_loss}")
 
     # compute test loss
     model.eval()
     with torch.no_grad():
-        test_loss = 0
+        test_recon_loss = 0
         for batch in tqdm(test_dataloader, desc=f"Epoch {epoch}", leave=False):
-            (observations, _, _), frames = batch
+            _, frames = batch
             frames = frames.squeeze(0).to(device)
 
-            positions, percentages, facings, actions = model(frames)
-            observations_pred = torch.cat([positions[:, 0].unsqueeze(1), positions[:, 1].unsqueeze(1), percentages[:, 0].unsqueeze(1), facings[:, 0].unsqueeze(1), actions[:, 0].unsqueeze(1), 
-                                          positions[:, 2].unsqueeze(1), positions[:, 3].unsqueeze(1), percentages[:, 1].unsqueeze(1), facings[:, 1].unsqueeze(1), actions[:, 1].unsqueeze(1)], dim=1)
+            recon, recon_truth, recon_loss = model(frames)
 
-            loss = F.mse_loss(observations_pred, observations, reduction="mean")
-            test_loss += loss.item()
+            test_recon_loss += recon_loss.item()
 
-        test_loss /= len(test_dataloader)
+        test_recon_loss /= len(test_dataloader)
         wandb.log({
-            "test_loss": test_loss,
+            "test_recon_loss": test_recon_loss,
         })
-        print(f"Test Loss: {test_loss}")
+        print(f"Test Recon Loss: {test_recon_loss}")
 
     torch.save(model.state_dict(), f"{config.name}.pth")
     

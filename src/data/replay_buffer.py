@@ -8,6 +8,8 @@ from PIL import Image
 import torchvision.transforms as T
 import tqdm
 from concurrent.futures import ThreadPoolExecutor
+from functools import reduce
+import operator
 
 # This is a copy of the replay buffer from cs224r-smash-sim.
 
@@ -15,32 +17,35 @@ class ReplayBuffer(Dataset):
     """
     A replay buffer for pre-processed Melee pickle files
     """
-    def __init__(self, root_dir: str, max_size: int = 1000000, transform: str = "default"):
+    def __init__(self, root_dir: str, max_size: int = 1000000, transforms: List[str] = ["default"]):
         self.max_size = max_size
         self.root_dir = root_dir
         self.pkl_dir = root_dir + "pkl/"
         self.pkl_files = sorted(glob(str(Path(self.pkl_dir) / "*.pkl")))
         self.frame_dir = root_dir + "frames/"
+        self.transforms = []
 
-        if transform == "default":
-            self.transform = T.Compose([
+        if "default" in transforms:
+            self.transforms.append(T.Compose([
                 T.Resize((64,64)),
                 T.ToTensor(),                   # [0,1]
                 T.Normalize(0.5, 0.5),          # -> [–1,1]
-            ])
-        elif transform == "jitter":
-            self.transform = T.Compose([
+            ]))
+
+        if "jitter" in transforms:
+            self.transforms.append(T.Compose([
                 T.Resize((64,64)),
                 T.ColorJitter(0.4, 0.4, 0.4, 0.1),
                 T.ToTensor(),                   # [0,1]
                 T.Normalize(0.5, 0.5),          # -> [–1,1]
-            ])
-        elif transform == "AE_transform":
-            self.transform = T.Compose([
+            ]))
+
+        if "AE_transform" in transforms:
+            self.transforms.append(T.Compose([
                 T.Resize((240,240)),
                 T.ToTensor(),
                 T.Normalize(0.5, 0.5),          # -> [–1,1]
-            ])
+            ]))
         
         self.reset()
         self.add_directory(self.pkl_dir)
@@ -127,11 +132,11 @@ class ReplayBuffer(Dataset):
         
         return action
 
-    def load_and_transform_frames(self, start, i):
+    def load_and_transform_frames(self, start, i, transforms):
         file_id = self.file_ids[start + i]
         file_path = Path(self.frame_dir) / file_id / f"frame_{i:04d}.jpg"
         image = Image.open(file_path).convert("RGB")
-        return self.transform(image)
+        return [transform(image) for transform in transforms]
 
     def add_pkl_file(self, pkl_path: str) -> None:
         """
@@ -158,22 +163,24 @@ class ReplayBuffer(Dataset):
             action = self._create_action(data, i)
             next_observation = self._create_observation(data, i + 1)
             
-            # Add to buffer
-            self.observations.append(observation)
-            self.actions.append(action)
-            self.next_observations.append(next_observation)
-            self.file_ids.append(Path(pkl_path).stem)
-            self.offsets.append(prev_length)
-            self.frame_idx.append(i)
+            # Iterate over the transformations
+            for transform in self.transforms:
+                # Add to buffer
+                self.observations.append(observation)
+                self.actions.append(action)
+                self.next_observations.append(next_observation)
+                self.file_ids.append(Path(pkl_path).stem)
+                self.offsets.append(prev_length)
+                self.frame_idx.append(i)
 
-            self.current_size += 1
+                self.current_size += 1
 
         with ThreadPoolExecutor() as executor:
             self.frames.extend(list(tqdm.tqdm(
                 executor.map(
-                    lambda i: self.load_and_transform_frames(prev_length, i), 
+                    lambda i: self.load_and_transform_frames(prev_length, i, self.transforms), 
                     range(num_frames - 1)
-                )
+                ))
             )))
 
     def add_directory(self, directory: str) -> None:
