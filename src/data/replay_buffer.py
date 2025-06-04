@@ -127,8 +127,8 @@ class ReplayBuffer(Dataset):
         
         return action
 
-    def load_and_transform_frames(self, i):
-        file_id = self.file_ids[i]
+    def load_and_transform_frames(self, start, i):
+        file_id = self.file_ids[start + i]
         file_path = Path(self.frame_dir) / file_id / f"frame_{i:04d}.jpg"
         image = Image.open(file_path).convert("RGB")
         return self.transform(image)
@@ -170,7 +170,8 @@ class ReplayBuffer(Dataset):
 
         with ThreadPoolExecutor() as executor:
             self.frames.extend(list(tqdm.tqdm(
-                executor.map(self.load_and_transform_frames, 
+                executor.map(
+                    lambda i: self.load_and_transform_frames(prev_length, i), 
                     range(num_frames - 1)
                 )
             )))
