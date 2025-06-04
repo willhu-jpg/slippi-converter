@@ -181,7 +181,7 @@ class ReplayBuffer(Dataset):
                     lambda i: self.load_and_transform_frames(prev_length, i, self.transforms), 
                     range(num_frames - 1)
                 ))
-            )))
+            ))
 
     def add_directory(self, directory: str) -> None:
         """
