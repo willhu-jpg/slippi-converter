@@ -24,7 +24,7 @@ class TrainEncoderConfig(Config):
     def __init__(self):
         self.name = "train_encoder"
         self.model = "bigger"
-        self.transforms = ["default", "jitter"]
+        self.transforms = ["default"]
         self.dropout = 0.1
         self.learning_rate = 1e-3
         self.batch_size = 128
@@ -43,6 +43,7 @@ def main(config: TrainEncoderConfig):
     # Initialize wandb
     wandb.init(
         project="slippi-frame-autoencoder",
+        name=config.name,
         config={
             "learning_rate": config.learning_rate,
             "batch_size": config.batch_size,

@@ -31,7 +31,7 @@ from datetime import datetime
 
 # Import models and data
 from infra.model import Encoder
-from infra.AE import FrameAE
+from infra.biggerModel import BigEncoder
 from data.replay_buffer import ReplayBuffer
 
 # Import visualization utilities if they exist
@@ -62,7 +62,9 @@ class ModelEvaluator:
         if self.model_type == "encoder":
             model = Encoder(z_dim=10, dropout=0.0)  # No dropout for evaluation
         elif self.model_type == "frameae":
-            model = FrameAE()
+            model = BigEncoder(z_dim=10, dropout=0.0)
+        elif self.model_type == "bigger":
+            model = FrameAE(coord_dim=32)
         else:
             raise ValueError(f"Unknown model type: {self.model_type}")
         
