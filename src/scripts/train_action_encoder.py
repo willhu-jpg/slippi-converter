@@ -25,21 +25,35 @@ from data.replay_buffer import ReplayBuffer
 
 def load_datasets(window_len, transform):
     train_dataset = ReplayBuffer(
-        root_dir="/home/ubuntu/slippi-converter/data_split_window/train/",
+        root_dir=f"/home/ubuntu/slippify/data_window_{window_len}/train/",
         transform=transform,
         window_len=window_len
     )
     val_dataset = ReplayBuffer(
-        root_dir="/home/ubuntu/slippi-converter/data_split_window/val/",
+        root_dir=f"/home/ubuntu/slippify/data_window_{window_len}/val/",
         transform=transform,
         window_len=window_len
     )
     test_dataset = ReplayBuffer(
-        root_dir="/home/ubuntu/slippi-converter/data_split_window/test/",
+        root_dir=f"/home/ubuntu/slippify/data_window_{window_len}/test/",
         transform=transform,
         window_len=window_len
     )
     return train_dataset, val_dataset, test_dataset
+
+
+def normalize_datasets_attr(datasets, attr):
+    attr_tensor = getattr(datasets[0], attr)
+    for i in range(1, len(datasets)):
+        attr_tensor = torch.concat((attr_tensor, getattr(datasets[i], attr)), dim=0)
+
+    mean = torch.mean(attr_tensor, dim=0)
+    std = torch.std(attr_tensor, dim=0)
+    print(f"Data mean: {mean}, Data std: {std}")
+    
+    for dataset in datasets:
+        setattr(dataset, attr, (getattr(dataset, attr) - mean) / (std + 1e-8))
+
 
 # -----------------------------------------------------------------------------------
 # Configuration for Pydra (hyperparameters and fixed values)
@@ -51,27 +65,13 @@ class TrainActionEncoderConfig(Config):
         self.transform = "default"
         self.dropout = 0.1
         self.learning_rate = 1e-3
-        self.batch_size = 128
+        self.batch_size = 64
         self.epochs = 50
         self.z_dim = 12  # fixed, not swept
         self.window_len: int = None  # must be provided
 
     def __repr__(self):
         return f"TrainActionEncoderConfig({self.to_dict()})"
-
-# -----------------------------------------------------------------------------------
-# Global variables for datasets and dataloaders
-# -----------------------------------------------------------------------------------
-
-global train_dataset, val_dataset, test_dataset
-train_dataset = None
-val_dataset = None
-test_dataset = None
-
-global train_loader, val_loader, test_loader
-train_loader = None
-val_loader = None
-test_loader = None
 
 # -----------------------------------------------------------------------------------
 # Training function used by both single-run and sweep
@@ -81,6 +81,14 @@ test_loader = None
 def train_with_wandb(config):
     assert config.window_len is not None
     print(config)
+
+    datasets = load_datasets(config.window_len, config.transform)
+    normalize_datasets_attr(datasets, "actions")
+    train_dataset, val_dataset, test_dataset = datasets
+
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = Encoder(window_len=config.window_len, z_dim=config.z_dim, dropout=config.dropout).to(device)
@@ -167,12 +175,6 @@ def main(config: TrainActionEncoderConfig):
             "name": config.name,
         }
     )
-    # Set up global dataloaders with config.batch_size
-    global train_loader, val_loader, test_loader
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
-
     train_with_wandb(wandb.config)
 
 # -----------------------------------------------------------------------------------
@@ -184,13 +186,6 @@ def sweep_train():
     wandb.init()
     config = wandb.config
     print(config)
-
-    # Update global dataloaders with sweep batch_size
-    global train_loader, val_loader, test_loader
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
-
     train_with_wandb(config)
 
 # -----------------------------------------------------------------------------------
@@ -204,7 +199,7 @@ if __name__ == "__main__":
         help="Launch a WandB hyperparameter sweep"
     )
     parser.add_argument(
-        "--window_len", type=int, required=True,
+        "--window_len", type=int,
         help="Window length for the encoder (do not change in sweep)"
     )
     parser.add_argument(
@@ -213,26 +208,23 @@ if __name__ == "__main__":
     )
     args, unknown = parser.parse_known_args()
 
-    # Load datasets once (shared across sweeps and single runs)
-    train_dataset, val_dataset, test_dataset = load_datasets(args.window_len, args.transform)
-
     if args.sweep:
         sweep_config = {
             "method": "random",
             "metric": {"name": "val_loss", "goal": "minimize"},
             "parameters": {
-                "learning_rate": {"values": [1e-4, 1e-3, 1e-2]},
-                "batch_size": {"values": [64, 128, 256]},
-                "dropout": {"values": [0.1, 0.3, 0.5]},
+                "learning_rate": {"value": 1e-3},
+                "batch_size": {"value": 64},
+                "dropout": {"value": 0.1},
                 # z_dim fixed, not swept
                 "z_dim": {"value": 12},
-                "epochs": {"value": 50},
-                "window_len": {"value": args.window_len},
+                "epochs": {"value": 30},
+                "window_len": {"values": [3, 5, 7, 9]},
                 "transform": {"value": args.transform},
                 "name": {"value": "train_action_encoder"}
             }
         }
-        sweep_id = wandb.sweep(sweep=sweep_config, project="slippi-frame-autoencoder")
+        sweep_id = wandb.sweep(sweep=sweep_config, project="slippify-action-encoder_fixed-norm")
         wandb.agent(sweep_id, function=sweep_train)
     else:
         # Single run: use Pydra to parse and launch

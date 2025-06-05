@@ -226,13 +226,8 @@ class ReplayBuffer(Dataset):
         pkl_files = sorted(glob(str(Path(directory) / "*.pkl")))
         for pkl_file in pkl_files:
             self.add_pkl_file(pkl_file)
-
-        self.observations = np.array(self.observations)
-        self.next_observations = np.array(self.next_observations)
-        self.mean_observations = np.mean(self.observations, axis=0)
-        self.std_observations = np.std(self.observations, axis=0)
-
-        self.observations = (self.observations - self.mean_observations) / (self.std_observations + 1e-8)
-        self.next_observations = (self.next_observations - self.mean_observations) / (self.std_observations + 1e-8)
+        
+        self.actions = np.array(self.actions)
+        self.actions = torch.from_numpy(self.actions)
 
         print(f"Loaded {self.current_size} total frames")
