@@ -24,7 +24,7 @@ class TrainEncoderConfig(Config):
     def __init__(self):
         self.name = "train_encoder"
         self.model = "bigger"
-        self.transforms = ["default"]
+        self.transforms = ["default", "jitter"]
         self.dropout = 0.1
         self.learning_rate = 1e-3
         self.batch_size = 128
@@ -33,6 +33,33 @@ class TrainEncoderConfig(Config):
 
     def __repr__(self):
         return f"TrainEncoderConfig({self.to_dict()})"
+    
+def load_datasets(transforms):
+    train_dataset = ReplayBuffer(
+        root_dir=f"/home/ubuntu/project/slippify/data_split/train/",
+        transforms=transforms,
+    )
+    val_dataset = ReplayBuffer(
+        root_dir=f"/home/ubuntu/project/slippify/data_split/val/",
+        transforms=["default"],
+    )
+    test_dataset = ReplayBuffer(
+        root_dir=f"/home/ubuntu/project/slippify/data_split/test/",
+        transforms=["default"],
+    )
+    return train_dataset, val_dataset, test_dataset
+
+def normalize_datasets_attr(datasets, attr):
+    attr_tensor = getattr(datasets[0], attr)
+    for i in range(1, len(datasets)):
+        attr_tensor = torch.concat((attr_tensor, getattr(datasets[i], attr)), dim=0)
+
+    mean = torch.mean(attr_tensor, dim=0)
+    std = torch.std(attr_tensor, dim=0)
+    print(f"Data mean: {mean}, Data std: {std}")
+    
+    for dataset in datasets:
+        setattr(dataset, attr, (getattr(dataset, attr) - mean) / (std + 1e-8))
 
 @pydra.main(base=TrainEncoderConfig)
 def main(config: TrainEncoderConfig):
@@ -65,14 +92,13 @@ def main(config: TrainEncoderConfig):
     optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
     # Initialize train, validation, and test datasets
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/train/", transforms=config.transforms)
-    train_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
+    datasets = load_datasets(config.transforms)
+    normalize_datasets_attr(datasets, "observations")
+    train_dataset, val_dataset, test_dataset = datasets
 
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/val/", transforms=["default"])
-    val_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
-
-    dataset = ReplayBuffer(root_dir="/home/ubuntu/project/slippify/data_split/test/", transforms=["default"])
-    test_dataloader = DataLoader(dataset, batch_size=wandb.config.batch_size, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=wandb.config.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=wandb.config.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=wandb.config.batch_size, shuffle=True)
 
     # Log model architecture
     wandb.watch(model, log="all")

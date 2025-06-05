@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from glob import glob
 from torch.utils.data import Dataset
+import torch
 from PIL import Image
 import torchvision.transforms as T
 import tqdm
@@ -199,10 +200,7 @@ class ReplayBuffer(Dataset):
 
         self.observations = np.array(self.observations)
         self.next_observations = np.array(self.next_observations)
-        self.mean_observations = np.mean(self.observations, axis=0)
-        self.std_observations = np.std(self.observations, axis=0)
 
-        self.observations = (self.observations - self.mean_observations) / (self.std_observations + 1e-8)
-        self.next_observations = (self.next_observations - self.mean_observations) / (self.std_observations + 1e-8)
+        self.observations = torch.from_numpy(self.observations)
 
         print(f"Loaded {self.current_size} total frames")
